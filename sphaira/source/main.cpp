@@ -60,12 +60,11 @@ void userAppInit(void) {
         diagAbortWithResult(rc);
     if (R_FAILED(rc = accountInitialize(is_application ? AccountServiceType_Application : AccountServiceType_System)))
         diagAbortWithResult(rc);
-    if (R_FAILED(rc = setInitialize()))
-        diagAbortWithResult(rc);
-    if (R_FAILED(rc = hidsysInitialize()))
-        diagAbortWithResult(rc);
-    if (R_FAILED(rc = ncmInitialize()))
-        diagAbortWithResult(rc);
+    // These services are optional — if they fail the app still runs,
+    // just without language auto-detect, HID extras, or NCM title cache.
+    setInitialize();
+    hidsysInitialize();
+    ncmInitialize();
 
     // it doesn't matter if this fails.
     appletSetScreenShotPermission(AppletScreenShotPermission_Enable);

@@ -1851,13 +1851,7 @@ App::App(const char* argv0) {
 
         boot_log("App ctor: creating renderer + nvg");
         this->renderer.emplace(s_width, s_height, this->device, this->queue, *this->pool_images, *this->pool_code, *this->pool_data);
-        boot_log("App ctor: renderer emplaced");
         this->vg = nvgCreateDk(&*this->renderer, NVG_ANTIALIAS | NVG_STENCIL_STROKES);
-        {
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "App ctor: nvg vg=%p", (void*)this->vg);
-            boot_log(buf);
-        }
         boot_log("App ctor: nvg/deko3d done");
     }
 

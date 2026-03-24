@@ -8,10 +8,15 @@
 // Writes a single checkpoint string to /switch/sphaira/sphaira_boot.log on the SD card.
 // Relies only on fsdev which libnx sets up before userAppInit.
 void boot_log(const char* msg) {
+    // Relative timestamp in ms from the first boot_log call.
+    static u64 s_start = 0;
+    const u64 now = armGetSystemTick();
+    if (!s_start) s_start = now;
+    const u64 ms = (now - s_start) / 19200; // 19.2 MHz tick → ms
+
     FILE* f = fopen("/switch/sphaira/sphaira_boot.log", "a");
     if (f) {
-        fputs(msg, f);
-        fputc('\n', f);
+        fprintf(f, "[+%4llums] %s\n", (unsigned long long)ms, msg);
         fclose(f);
     }
 }

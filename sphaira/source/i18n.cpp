@@ -100,8 +100,12 @@ bool init(long index) {
     SCOPED_MUTEX(&g_mutex);
 
     g_tr_cache.clear();
-    R_TRY_RESULT(romfsInit(), false);
-    ON_SCOPE_EXIT( romfsExit() );
+    // romfsMountSelf("romfs") works exactly once per app run: the handle is
+    // one-shot and romfsUnmount() permanently consumes it.
+    // Do NOT call romfsExit() here — leave romfs mounted so that later callers
+    // (e.g. DkRenderer::Create loading shaders) can still access romfs:/.
+    const Result _romfs_rc = romfsInit();
+    if (R_FAILED(_romfs_rc) && _romfs_rc != 0x559u) return false;
 
     u64 languageCode;
     SetLanguage setLanguage = SetLanguage_ENGB;

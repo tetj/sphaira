@@ -419,10 +419,12 @@ void LoadThemeInternal(ThemeMeta meta, ThemeData& theme_data, int inherit_level 
     // block inheriting from itself.
     if (inherit_level < inherit_level_max && !meta.inherit.empty() && strcasecmp(meta.inherit, "none") && meta.inherit != meta.ini_path) {
         log_write("inherit is not empty: %s\n", meta.inherit.s);
-        if (R_SUCCEEDED(romfsInit())) {
+        {
+        const Result _rc = romfsInit();
+        if (R_SUCCEEDED(_rc) || _rc == 0x559u) {
             ThemeMeta inherit_meta;
             const auto has_meta = LoadThemeMeta(meta.inherit, inherit_meta);
-            romfsExit();
+            if (R_SUCCEEDED(_rc)) romfsExit();
 
             // base themes do not have a meta
             if (!has_meta) {
@@ -430,6 +432,7 @@ void LoadThemeInternal(ThemeMeta meta, ThemeData& theme_data, int inherit_level 
             }
 
             LoadThemeInternal(inherit_meta, theme_data, inherit_level + 1);
+        }
         }
     }
 
@@ -452,14 +455,17 @@ void LoadThemeInternal(ThemeMeta meta, ThemeData& theme_data, int inherit_level 
         return 1;
     };
 
-    if (R_SUCCEEDED(romfsInit())) {
-        ON_SCOPE_EXIT(romfsExit());
+    {
+    const Result _rc = romfsInit();
+    if (R_SUCCEEDED(_rc) || _rc == 0x559u) {
+        ON_SCOPE_EXIT( if (R_SUCCEEDED(_rc)) { romfsExit(); } );
 
         if (!ini_browse(cb, &theme_data, meta.ini_path)) {
             log_write("failed to open ini: %s\n", meta.ini_path.s);
         } else {
             log_write("opened ini: %s\n", meta.ini_path.s);
         }
+    }
     }
 }
 
@@ -1349,8 +1355,10 @@ void App::LoadTheme(const ThemeMeta& meta) {
     LoadThemeInternal(meta, theme_data);
     m_theme.meta = meta;
 
-    if (R_SUCCEEDED(romfsInit())) {
-        ON_SCOPE_EXIT(romfsExit());
+    {
+    const Result _rc = romfsInit();
+    if (R_SUCCEEDED(_rc) || _rc == 0x559u) {
+        ON_SCOPE_EXIT( if (R_SUCCEEDED(_rc)) { romfsExit(); } );
 
         // load all assets / colours.
         for (auto& e : THEME_ENTRIES) {
@@ -1360,6 +1368,7 @@ void App::LoadTheme(const ThemeMeta& meta) {
         // load music
         m_theme.music_path = theme_data.music_path;
         LoadAndPlayThemeMusic();
+    }
     }
 }
 
@@ -1397,9 +1406,12 @@ void App::ScanThemes(const std::string& path) {
 
 void App::ScanThemeEntries() {
     // load from romfs first
-    if (R_SUCCEEDED(romfsInit())) {
+    {
+    const Result _rc = romfsInit();
+    if (R_SUCCEEDED(_rc) || _rc == 0x559u) {
         ScanThemes("romfs:/themes/");
-        romfsExit();
+        if (R_SUCCEEDED(_rc)) romfsExit();
+    }
     }
 
     // then load custom entries
@@ -1476,12 +1488,6 @@ Result App::GetEmmcSize(s64* free, s64* total) {
 
 App::App(const char* argv0) {
     boot_log("App ctor start");
-    // Mount romfs once here and keep it mounted for the entire constructor.
-    // The hbloader provides a one-shot romfs handle: the first romfsExit() that
-    // drops the ref-count to 0 consumes it permanently. Without this guard,
-    // i18n::init (and other early callers) burn the handle before DkRenderer::Create
-    // calls romfsInit(), causing nvgCreateDk to return NULL every time.
-    romfsInit();
     // boost mode is enabled in userAppInit().
     ON_SCOPE_EXIT(App::SetBoostMode(false));
     SCOPED_TIMESTAMP("App Constructor");
@@ -1845,7 +1851,13 @@ App::App(const char* argv0) {
 
         boot_log("App ctor: creating renderer + nvg");
         this->renderer.emplace(s_width, s_height, this->device, this->queue, *this->pool_images, *this->pool_code, *this->pool_data);
+        boot_log("App ctor: renderer emplaced");
         this->vg = nvgCreateDk(&*this->renderer, NVG_ANTIALIAS | NVG_STENCIL_STROKES);
+        {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "App ctor: nvg vg=%p", (void*)this->vg);
+            boot_log(buf);
+        }
         boot_log("App ctor: nvg/deko3d done");
     }
 
@@ -1992,13 +2004,16 @@ App::App(const char* argv0) {
         // try and load previous theme, default to previous version otherwise.
         fs::FsPath theme_path = m_theme_path.Get();
         ThemeMeta theme_meta;
-        if (R_SUCCEEDED(romfsInit())) {
-            ON_SCOPE_EXIT(romfsExit());
+        {
+        const Result _rc = romfsInit();
+        if (R_SUCCEEDED(_rc) || _rc == 0x559u) {
+            ON_SCOPE_EXIT( if (R_SUCCEEDED(_rc)) { romfsExit(); } );
             if (!LoadThemeMeta(theme_path, theme_meta)) {
                 log_write("failed to load meta using default\n");
                 theme_path = DEFAULT_THEME_PATH;
                 LoadThemeMeta(theme_path, theme_meta);
             }
+        }
         }
         log_write("loading theme from: %s\n", theme_meta.ini_path.s);
         LoadTheme(theme_meta);
@@ -2722,8 +2737,6 @@ void App::ShowEnableInstallPromptOption(option::OptionBool& option, bool& enable
 }
 
 App::~App() {
-    // Balance the romfsInit held since the constructor.
-    romfsExit();
     // boost mode is disabled in userAppExit().
     App::SetBoostMode(true);
 

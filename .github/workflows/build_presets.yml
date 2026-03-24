@@ -1,6 +1,7 @@
 name: build
 
 on:
+  workflow_dispatch: # This enables the manual "Run workflow" button
   push:
     branches-ignore:
       - dev
@@ -20,6 +21,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+
+    - name: Fix git safe directory issue
+      run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
 
     # fetch latest cmake
     - uses: lukka/get-cmake@v3.31.6

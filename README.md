@@ -75,14 +75,18 @@ Also you need to have on your environment the packages `git`, `make`, `zip` and 
 
 Once devkitPro and all dependencies are installed, you can now build sphaira.
 
+Open C:\devkitPro\msys2\mingw64.exe :
 ```sh
+cd c:\
 git clone https://github.com/ITotalJustice/sphaira.git
-cd sphaira
-cmake --preset MinSizeRel
-cmake --build --preset MinSizeRel
+cd c:\sphaira
+pacman -S ninja
+pacman -Syu
+cmake --preset Release -G Ninja
+cmake --build --preset Release
 ```
 
-The output will be found in `build/MinSizeRel/sphaira.nro`
+The output will be found in `build/Release/sphaira.nro`
 
 ## Credits
 

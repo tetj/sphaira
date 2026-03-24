@@ -307,6 +307,9 @@ if (ENABLE_LIBUSBDVD)
     FetchContent_Declare(libusbdvd
         GIT_REPOSITORY https://github.com/proconsule/libusbdvd.git
         GIT_TAG 3cb0613
+        PATCH_COMMAND ${CMAKE_COMMAND}
+            -DSOURCE_DIR=<SOURCE_DIR>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/apply_patch.cmake
     )
 
     FetchContent_MakeAvailable(libusbdvd)

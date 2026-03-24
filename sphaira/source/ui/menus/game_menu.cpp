@@ -369,17 +369,40 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
                     auto options = std::make_unique<Sidebar>("Filter Options"_i18n, Sidebar::Side::RIGHT);
                     ON_SCOPE_EXIT(App::Push(std::move(options)));
 
-                    SidebarEntryArray::Items filter_items;
-                    filter_items.push_back("All"_i18n);
-                    filter_items.push_back("1 Player"_i18n);
-                    filter_items.push_back("2 Players"_i18n);
-                    filter_items.push_back("More than 2 Players"_i18n);
-                    filter_items.push_back("Unknown"_i18n);
+                    SidebarEntryArray::Items player_items;
+                    player_items.push_back("All"_i18n);
+                    player_items.push_back("1 Player"_i18n);
+                    player_items.push_back("2 Players"_i18n);
+                    player_items.push_back("More than 2 Players"_i18n);
+                    player_items.push_back("Unknown"_i18n);
 
-                    options->Add<SidebarEntryArray>("Filter"_i18n, filter_items, [this](s64& index_out){
-                        m_filter.Set(index_out);
+                    SidebarEntryArray::Items rating_items;
+                    rating_items.push_back("All"_i18n);
+                    rating_items.push_back("Everyone"_i18n);
+                    rating_items.push_back("Everyone 10+"_i18n);
+                    rating_items.push_back("Teen"_i18n);
+                    rating_items.push_back("Mature"_i18n);
+                    rating_items.push_back("Unknown"_i18n);
+
+                    // compute which item is currently selected in each array
+                    const auto cur = m_filter.Get();
+                    const auto players_idx = (cur >= FilterType_All && cur <= FilterType_PlayersUnknown)
+                        ? cur : 0;
+                    const auto rating_idx = (cur >= FilterType_RatingEveryone && cur <= FilterType_RatingUnknown)
+                        ? (cur - FilterType_RatingEveryone + 1) : 0;
+
+                    options->Add<SidebarEntryArray>("Players"_i18n, player_items, [this](s64& index_out){
+                        m_filter.Set(index_out); // 0=All, 1=1p, 2=2p, 3=2p+, 4=p_unk
                         SetFilter();
-                    }, m_filter.Get());
+                    }, players_idx);
+
+                    options->Add<SidebarEntryArray>("Age Rating"_i18n, rating_items, [this](s64& index_out){
+                        const auto val = (index_out == 0)
+                            ? FilterType_All
+                            : FilterType_RatingEveryone + index_out - 1;
+                        m_filter.Set(val);
+                        SetFilter();
+                    }, rating_idx);
                 });
 
                 options->Add<SidebarEntryCallback>("View application content"_i18n, [this](){
@@ -764,12 +787,6 @@ void Menu::BuildFilterIndices() {
     for (u32 i = 0; i < m_entries.size(); i++) {
         m_entries_index[FilterType_All].emplace_back(i);
 
-        // log first 3 app_ids so we can compare against titledb keys
-        if (i < 3) {
-            log_write_boot("[game_menu] sample app_id[%u]: %016llX\n",
-                i, (unsigned long long)m_entries[i].app_id);
-        }
-
         const auto players = titledb::GetNumberOfPlayers(m_entries[i].app_id);
         if (players == 1) {
             m_entries_index[FilterType_SinglePlayer].emplace_back(i);
@@ -778,16 +795,37 @@ void Menu::BuildFilterIndices() {
         } else if (players > 2) {
             m_entries_index[FilterType_MoreThanTwoPlayers].emplace_back(i);
         } else {
-            m_entries_index[FilterType_Unknown].emplace_back(i);
+            m_entries_index[FilterType_PlayersUnknown].emplace_back(i);
+        }
+
+        const auto rating = titledb::GetRating(m_entries[i].app_id);
+        if (rating == 0) {
+            m_entries_index[FilterType_RatingUnknown].emplace_back(i);
+        } else if (rating < 10) {
+            m_entries_index[FilterType_RatingEveryone].emplace_back(i);
+        } else if (rating < 13) {
+            m_entries_index[FilterType_RatingEveryone10Plus].emplace_back(i);
+        } else if (rating < 17) {
+            m_entries_index[FilterType_RatingTeen].emplace_back(i);
+        } else {
+            m_entries_index[FilterType_RatingMature].emplace_back(i);
         }
     }
 
-    log_write_boot("[game_menu] BuildFilterIndices: total=%zu, 1p=%zu, 2p=%zu, 2p+=%zu, unknown=%zu, titledb_ready=%d\n",
+    log_write_boot("[game_menu] BuildFilterIndices: total=%zu "
+        "| 1p=%zu 2p=%zu 2p+=%zu p_unk=%zu "
+        "| E=%zu E10=%zu T=%zu M=%zu r_unk=%zu "
+        "| titledb_ready=%d\n",
         m_entries_index[FilterType_All].size(),
         m_entries_index[FilterType_SinglePlayer].size(),
         m_entries_index[FilterType_TwoPlayers].size(),
         m_entries_index[FilterType_MoreThanTwoPlayers].size(),
-        m_entries_index[FilterType_Unknown].size(),
+        m_entries_index[FilterType_PlayersUnknown].size(),
+        m_entries_index[FilterType_RatingEveryone].size(),
+        m_entries_index[FilterType_RatingEveryone10Plus].size(),
+        m_entries_index[FilterType_RatingTeen].size(),
+        m_entries_index[FilterType_RatingMature].size(),
+        m_entries_index[FilterType_RatingUnknown].size(),
         (int)titledb::IsReady());
 }
 

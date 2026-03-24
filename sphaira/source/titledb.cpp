@@ -23,9 +23,14 @@ constexpr time_t MAX_AGE_SECONDS = 30LL * 24 * 60 * 60; // 30 days
 
 std::atomic_bool g_ready{};
 std::atomic_bool g_started{};
-std::unordered_map<u64, u32> g_players_map{};
 Mutex g_mutex{};
 std::unique_ptr<utils::Async> g_parse_async{};
+
+struct TitleInfo {
+    u32 players{};
+    u32 rating{};
+};
+std::unordered_map<u64, TitleInfo> g_title_map{};
 
 auto IsStale() -> bool {
     struct stat st;
@@ -78,11 +83,9 @@ void DoParse() {
     const auto total_entries = yyjson_obj_size(root);
     log_write_boot("[titledb] root object has %zu entries\n", total_entries);
 
-    std::unordered_map<u64, u32> map;
+    std::unordered_map<u64, TitleInfo> map;
     map.reserve(total_entries);
 
-    u32 skipped_no_field = 0;
-    u32 skipped_bad_type = 0;
     u32 skipped_bad_id = 0;
     u32 sample_count = 0;
 
@@ -97,7 +100,7 @@ void DoParse() {
 
         const auto val = yyjson_obj_iter_get_val(key);
 
-        // log the first 3 entries to expose the actual JSON structure
+        // log the first 3 entries to verify the id field and fields present
         if (sample_count < 3) {
             log_write_boot("[titledb] sample[%u]: nsuId_key=\"%s\" is_obj=%d\n",
                 sample_count, key_str, yyjson_is_obj(val));
@@ -110,8 +113,11 @@ void DoParse() {
                     (id_val && yyjson_is_str(id_val)) ? yyjson_get_str(id_val) : "(not a string)");
 
                 const auto pval = yyjson_obj_get(val, "numberOfPlayers");
-                log_write_boot("[titledb] sample[%u] numberOfPlayers: found=%d type=%u\n",
-                    sample_count, pval != nullptr, pval ? yyjson_get_type(pval) : 0);
+                const auto rval = yyjson_obj_get(val, "rating");
+                log_write_boot("[titledb] sample[%u] numberOfPlayers: found=%d type=%u  rating: found=%d type=%u\n",
+                    sample_count,
+                    pval != nullptr, pval ? yyjson_get_type(pval) : 0,
+                    rval != nullptr, rval ? yyjson_get_type(rval) : 0);
             }
             sample_count++;
         }
@@ -132,40 +138,51 @@ void DoParse() {
             continue;
         }
 
+        TitleInfo info{};
+
+        // parse numberOfPlayers — can be uint, sint, or real (e.g. 1.0)
         const auto players_val = yyjson_obj_get(val, "numberOfPlayers");
-        if (!players_val) {
-            skipped_no_field++;
-            continue;
+        if (players_val) {
+            if (yyjson_is_uint(players_val)) {
+                info.players = static_cast<u32>(yyjson_get_uint(players_val));
+            } else if (yyjson_is_sint(players_val)) {
+                const auto v = yyjson_get_sint(players_val);
+                info.players = v > 0 ? static_cast<u32>(v) : 0;
+            } else if (yyjson_is_real(players_val)) {
+                const auto v = yyjson_get_real(players_val);
+                info.players = v > 0.0 ? static_cast<u32>(v) : 0;
+            }
+            // null or other type → players stays 0
         }
 
-        // numberOfPlayers can be uint, sint, or real (e.g. 1.0) depending on the entry
-        u32 players = 0;
-        if (yyjson_is_uint(players_val)) {
-            players = static_cast<u32>(yyjson_get_uint(players_val));
-        } else if (yyjson_is_sint(players_val)) {
-            const auto v = yyjson_get_sint(players_val);
-            players = v > 0 ? static_cast<u32>(v) : 0;
-        } else if (yyjson_is_real(players_val)) {
-            const auto v = yyjson_get_real(players_val);
-            players = v > 0.0 ? static_cast<u32>(v) : 0;
-        } else {
-            skipped_bad_type++;
-            continue;
+        // parse rating — same type flexibility
+        const auto rating_val = yyjson_obj_get(val, "rating");
+        if (rating_val) {
+            if (yyjson_is_uint(rating_val)) {
+                info.rating = static_cast<u32>(yyjson_get_uint(rating_val));
+            } else if (yyjson_is_sint(rating_val)) {
+                const auto v = yyjson_get_sint(rating_val);
+                info.rating = v > 0 ? static_cast<u32>(v) : 0;
+            } else if (yyjson_is_real(rating_val)) {
+                const auto v = yyjson_get_real(rating_val);
+                info.rating = v > 0.0 ? static_cast<u32>(v) : 0;
+            }
+            // null or other type → rating stays 0
         }
 
-        map[title_id] = players;
+        map[title_id] = info;
     }
 
-    log_write_boot("[titledb] loop done: map_size=%zu skipped: %u (no field) %u (bad type) %u (bad id)\n",
-        map.size(), skipped_no_field, skipped_bad_type, skipped_bad_id);
+    log_write_boot("[titledb] loop done: map_size=%zu skipped_bad_id=%u\n",
+        map.size(), skipped_bad_id);
 
     {
         SCOPED_MUTEX(&g_mutex);
-        g_players_map = std::move(map);
+        g_title_map = std::move(map);
     }
 
     g_ready = true;
-    log_write_boot("[titledb] ready — %zu title IDs loaded\n", g_players_map.size());
+    log_write_boot("[titledb] ready — %zu title IDs loaded\n", g_title_map.size());
 }
 
 } // namespace
@@ -179,8 +196,17 @@ auto GetNumberOfPlayers(u64 app_id) -> u32 {
         return 0;
     }
     SCOPED_MUTEX(&g_mutex);
-    const auto it = g_players_map.find(app_id);
-    return it != g_players_map.end() ? it->second : 0;
+    const auto it = g_title_map.find(app_id);
+    return it != g_title_map.end() ? it->second.players : 0;
+}
+
+auto GetRating(u64 app_id) -> u32 {
+    if (!g_ready) {
+        return 0;
+    }
+    SCOPED_MUTEX(&g_mutex);
+    const auto it = g_title_map.find(app_id);
+    return it != g_title_map.end() ? it->second.rating : 0;
 }
 
 void DownloadIfNeeded() {

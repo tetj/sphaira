@@ -40,10 +40,17 @@ enum SortType {
 
 enum FilterType {
     FilterType_All,
+    // by number of players
     FilterType_SinglePlayer,
     FilterType_TwoPlayers,
     FilterType_MoreThanTwoPlayers,
-    FilterType_Unknown,
+    FilterType_PlayersUnknown,
+    // by age rating
+    FilterType_RatingEveryone,
+    FilterType_RatingEveryone10Plus,
+    FilterType_RatingTeen,
+    FilterType_RatingMature,
+    FilterType_RatingUnknown,
     FilterType_MAX,
 };
 

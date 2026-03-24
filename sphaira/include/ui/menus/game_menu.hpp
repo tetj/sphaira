@@ -34,6 +34,8 @@ struct Entry {
 
 enum SortType {
     SortType_Updated,
+    SortType_Alphabetical,
+    SortType_Publisher,
 };
 
 enum OrderType {
@@ -98,7 +100,6 @@ private:
     s64 m_index{}; // where i am in the array
     s64 m_selected_count{};
     std::unique_ptr<List> m_list{};
-    bool m_is_reversed{};
     bool m_dirty{};
 
     // use for detection game card removal to force a refresh.

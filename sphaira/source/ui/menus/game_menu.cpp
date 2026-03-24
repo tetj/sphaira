@@ -331,6 +331,8 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
 
                     SidebarEntryArray::Items sort_items;
                     sort_items.push_back("Updated"_i18n);
+                    sort_items.push_back("Alphabetical"_i18n);
+                    sort_items.push_back("Publisher"_i18n);
 
                     SidebarEntryArray::Items order_items;
                     order_items.push_back("Descending"_i18n);
@@ -605,7 +607,6 @@ void Menu::ScanHomebrew() {
         offset += record_count;
     }
 
-    m_is_reversed = false;
     m_dirty = false;
     log_write("games found: %zu time_taken: %.2f seconds %zu ms %zu ns\n", m_entries.size(), ts.GetSecondsD(), ts.GetMs(), ts.GetNs());
     this->Sort();
@@ -614,20 +615,58 @@ void Menu::ScanHomebrew() {
 }
 
 void Menu::Sort() {
-    // const auto sort = m_sort.Get();
+    const auto sort = m_sort.Get();
     const auto order = m_order.Get();
 
-    if (order == OrderType_Ascending) {
-        if (!m_is_reversed) {
-            std::ranges::reverse(m_entries);
-            m_is_reversed = true;
-        }
-    } else {
-        if (m_is_reversed) {
-            std::ranges::reverse(m_entries);
-            m_is_reversed = false;
+    // for alphabetical / publisher sort, ensure names are loaded.
+    if (sort == SortType_Alphabetical || sort == SortType_Publisher) {
+        for (auto& e : m_entries) {
+            LoadControlEntry(e);
         }
     }
+
+    const auto sorter = [sort, order](const Entry& lhs, const Entry& rhs) -> bool {
+        switch (sort) {
+            case SortType_Updated: {
+                // entries come from the system ordered by last_event descending.
+                // use the original index order (last_event field) as tiebreaker.
+                if (lhs.last_event == rhs.last_event) {
+                    return strcasecmp(lhs.GetName(), rhs.GetName()) < 0;
+                }
+                if (order == OrderType_Descending) {
+                    return lhs.last_event > rhs.last_event;
+                } else {
+                    return lhs.last_event < rhs.last_event;
+                }
+            } break;
+            case SortType_Alphabetical: {
+                auto r = strcasecmp(lhs.GetName(), rhs.GetName());
+                if (!r) {
+                    r = strcasecmp(lhs.GetAuthor(), rhs.GetAuthor());
+                }
+                if (order == OrderType_Ascending) {
+                    return r < 0;
+                } else {
+                    return r > 0;
+                }
+            } break;
+            case SortType_Publisher: {
+                auto r = strcasecmp(lhs.GetAuthor(), rhs.GetAuthor());
+                if (!r) {
+                    r = strcasecmp(lhs.GetName(), rhs.GetName());
+                }
+                if (order == OrderType_Ascending) {
+                    return r < 0;
+                } else {
+                    return r > 0;
+                }
+            } break;
+        }
+
+        std::unreachable();
+    };
+
+    std::ranges::sort(m_entries, sorter);
 }
 
 void Menu::SortAndFindLastFile(bool scan) {

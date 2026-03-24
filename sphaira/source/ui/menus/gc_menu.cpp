@@ -96,17 +96,6 @@ auto GetXciSizeFromRomSize(u8 rom_size) -> s64 {
     return 0;
 }
 
-struct DebugEventInfo {
-    u32 event_type;
-    u32 flags;
-    u64 thread_id;
-    u64 title_id;
-    u64 process_id;
-    char process_name[12];
-    u32 mmu_flags;
-    u8 _0x30[0x10];
-};
-
 auto GetDumpTypeStr(u8 type) -> const char* {
     switch (type) {
         case DumpFileType_TrimmedXCI:

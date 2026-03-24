@@ -1250,7 +1250,7 @@ Result Menu::GcGetSecurityInfo(GameCardSecurityInformation& out) {
         if (R_SUCCEEDED(svcDebugActiveProcess(&handle, pids[i]))) {
             ON_SCOPE_EXIT(svcCloseHandle(handle));
 
-            if (R_FAILED(svcGetDebugEvent(&event_info, handle)) || title_id != event_info.title_id) {
+            if (R_FAILED(svcGetDebugEvent(&event_info, handle)) || title_id != event_info.info.create_process.program_id) {
                 continue;
             }
 

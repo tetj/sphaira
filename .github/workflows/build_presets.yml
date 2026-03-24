@@ -21,6 +21,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - name: Fix git safe directory
+      run: git config --global --add safe.directory "${{ github.workspace }}"
+
     # fetch latest cmake
     - uses: lukka/get-cmake@v3.31.6
 

@@ -1476,6 +1476,12 @@ Result App::GetEmmcSize(s64* free, s64* total) {
 
 App::App(const char* argv0) {
     boot_log("App ctor start");
+    // Mount romfs once here and keep it mounted for the entire constructor.
+    // The hbloader provides a one-shot romfs handle: the first romfsExit() that
+    // drops the ref-count to 0 consumes it permanently. Without this guard,
+    // i18n::init (and other early callers) burn the handle before DkRenderer::Create
+    // calls romfsInit(), causing nvgCreateDk to return NULL every time.
+    romfsInit();
     // boost mode is enabled in userAppInit().
     ON_SCOPE_EXIT(App::SetBoostMode(false));
     SCOPED_TIMESTAMP("App Constructor");
@@ -1845,7 +1851,7 @@ App::App(const char* argv0) {
 
     // not sure if these are meant to be deleted or not...
     {
-        boot_log("App ctor: font init");
+        boot_log("App ctor: font init [build-v5]");
         SCOPED_TIMESTAMP("font init");
 
         if (!this->vg) {
@@ -1887,7 +1893,17 @@ App::App(const char* argv0) {
                 boot_log("font: nvgCreateFontMem Standard");
                 auto* copy = static_cast<unsigned char*>(calloc(1, font_standard.size + FONT_COPY_PAD));
                 if (copy) {
+                    boot_log("font: calloc ok");
                     std::memcpy(copy, font_standard.address, font_standard.size);
+                    boot_log("font: memcpy done");
+                    {
+                        char hex[64];
+                        std::snprintf(hex, sizeof(hex), "font[0..7]: %02x %02x %02x %02x %02x %02x %02x %02x",
+                            copy[0], copy[1], copy[2], copy[3],
+                            copy[4], copy[5], copy[6], copy[7]);
+                        boot_log(hex);
+                    }
+                    boot_log("font: calling nvgCreateFontMem");
                     standard_font = nvgCreateFontMem(this->vg, "Standard", copy, static_cast<int>(font_standard.size), 1);
                     char buf[64];
                     std::snprintf(buf, sizeof(buf), "font: Standard result=%d", standard_font);
@@ -2706,6 +2722,8 @@ void App::ShowEnableInstallPromptOption(option::OptionBool& option, bool& enable
 }
 
 App::~App() {
+    // Balance the romfsInit held since the constructor.
+    romfsExit();
     // boost mode is disabled in userAppExit().
     App::SetBoostMode(true);
 

@@ -5,10 +5,10 @@
 #include "log.hpp"
 #include "ui/menus/main_menu.hpp"
 
-// Writes a single checkpoint string to /sphaira_boot.log on the SD card.
+// Writes a single checkpoint string to /switch/sphaira/sphaira_boot.log on the SD card.
 // Relies only on fsdev which libnx sets up before userAppInit.
 void boot_log(const char* msg) {
-    FILE* f = fopen("/sphaira_boot.log", "a");
+    FILE* f = fopen("/switch/sphaira/sphaira_boot.log", "a");
     if (f) {
         fputs(msg, f);
         fputc('\n', f);

@@ -1,24 +1,50 @@
 #include <switch.h>
 #include <memory>
+#include <cstdio>
 #include "app.hpp"
 #include "log.hpp"
 #include "ui/menus/main_menu.hpp"
 
+// Writes a single checkpoint string to /sphaira_boot.log on the SD card.
+// Relies only on fsdev which libnx sets up before userAppInit.
+void boot_log(const char* msg) {
+    FILE* f = fopen("/sphaira_boot.log", "a");
+    if (f) {
+        fputs(msg, f);
+        fputc('\n', f);
+        fclose(f);
+    }
+}
+
+// Called by a global constructor (runs between userAppInit and main).
+// If this fires, global ctors are running. If "main start" never appears,
+// one of the OTHER global ctors is crashing after this one.
+namespace { struct BootLogGlobalCtorProbe {
+    BootLogGlobalCtorProbe() { boot_log("global-ctors running"); }
+} s_probe; }
+
 int main(int argc, char** argv) {
+    boot_log("main start");
     if (!argc || !argv) {
+        boot_log("main: bad argc/argv - exit 1");
         return 1;
     }
-
+    boot_log("making App");
     auto app = std::make_unique<sphaira::App>(argv[0]);
+    boot_log("pushing MainMenu");
     app->Push<sphaira::ui::menu::main::MainMenu>();
+    boot_log("entering Loop");
     app->Loop();
+    boot_log("Loop returned - clean exit");
     return 0;
 }
 
 extern "C" {
 
 void userAppInit(void) {
+    boot_log("userAppInit start");
     sphaira::App::SetBoostMode(true);
+    boot_log("SetBoostMode done");
 
     // https://github.com/mtheall/ftpd/blob/e27898f0c3101522311f330e82a324861e0e3f7e/source/switch/init.c#L31
     const SocketInitConfig socket_config_application = {
@@ -46,28 +72,36 @@ void userAppInit(void) {
     };
 
     const auto is_application = sphaira::App::IsApplication();
+    boot_log(is_application ? "mode: application" : "mode: applet");
 
     const auto socket_config = is_application ? socket_config_application : socket_config_applet;
 
     Result rc;
+    boot_log("calling appletLockExit");
     if (R_FAILED(rc = appletLockExit()))
         diagAbortWithResult(rc);
+    boot_log("calling socketInitialize");
     if (R_FAILED(rc = socketInitialize(&socket_config)))
         diagAbortWithResult(rc);
+    boot_log("calling plInitialize");
     if (R_FAILED(rc = plInitialize(PlServiceType_User)))
         diagAbortWithResult(rc);
+    boot_log("calling nifmInitialize");
     if (R_FAILED(rc = nifmInitialize(NifmServiceType_User)))
         diagAbortWithResult(rc);
+    boot_log("calling accountInitialize");
     if (R_FAILED(rc = accountInitialize(is_application ? AccountServiceType_Application : AccountServiceType_System)))
         diagAbortWithResult(rc);
     // These services are optional — if they fail the app still runs,
     // just without language auto-detect, HID extras, or NCM title cache.
+    boot_log("calling optional services");
     setInitialize();
     hidsysInitialize();
     ncmInitialize();
 
     // it doesn't matter if this fails.
     appletSetScreenShotPermission(AppletScreenShotPermission_Enable);
+    boot_log("userAppInit done");
 
     log_nxlink_init();
 }

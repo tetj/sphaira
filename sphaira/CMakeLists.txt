@@ -117,6 +117,7 @@ add_executable(sphaira
     source/i18n.cpp
     source/threaded_file_transfer.cpp
     source/title_info.cpp
+    source/titledb.cpp
     source/minizip_helper.cpp
 
     source/utils/utils.cpp

@@ -6,6 +6,7 @@
 #include "i18n.hpp"
 #include "image.hpp"
 #include "swkbd.hpp"
+#include "titledb.hpp"
 
 #include "utils/utils.hpp"
 #include "utils/nsz_dumper.hpp"
@@ -285,29 +286,29 @@ void SignalChange() {
 Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
     this->SetActions(
         std::make_pair(Button::L3, Action{[this](){
-            if (m_entries.empty()) {
+            if (m_entries_current.empty()) {
                 return;
             }
 
-            m_entries[m_index].selected ^= 1;
+            GetEntry().selected ^= 1;
 
-            if (m_entries[m_index].selected) {
+            if (GetEntry().selected) {
                 m_selected_count++;
             } else {
                 m_selected_count--;
             }
         }}),
         std::make_pair(Button::R3, Action{[this](){
-            if (m_entries.empty()) {
+            if (m_entries_current.empty()) {
                 return;
             }
 
-            if (m_selected_count == m_entries.size()) {
+            if (m_selected_count == (s64)m_entries_current.size()) {
                 ClearSelection();
             } else {
-                m_selected_count = m_entries.size();
-                for (auto& e : m_entries) {
-                    e.selected = true;
+                m_selected_count = m_entries_current.size();
+                for (auto i : m_entries_current) {
+                    m_entries[i].selected = true;
                 }
             }
         }}),
@@ -315,16 +316,16 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
             SetPop();
         }}),
         std::make_pair(Button::A, Action{"Launch"_i18n, [this](){
-            if (m_entries.empty()) {
+            if (m_entries_current.empty()) {
                 return;
             }
-            LaunchEntry(m_entries[m_index]);
+            LaunchEntry(GetEntry());
         }}),
         std::make_pair(Button::X, Action{"Options"_i18n, [this](){
             auto options = std::make_unique<Sidebar>("Game Options"_i18n, Sidebar::Side::RIGHT);
             ON_SCOPE_EXIT(App::Push(std::move(options)));
 
-            if (m_entries.size()) {
+            if (!m_entries.empty()) {
                 options->Add<SidebarEntryCallback>("Sort By"_i18n, [this](){
                     auto options = std::make_unique<Sidebar>("Sort Options"_i18n, Sidebar::Side::RIGHT);
                     ON_SCOPE_EXIT(App::Push(std::move(options)));
@@ -364,13 +365,30 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
                     });
                 });
 
+                options->Add<SidebarEntryCallback>("Filter By"_i18n, [this](){
+                    auto options = std::make_unique<Sidebar>("Filter Options"_i18n, Sidebar::Side::RIGHT);
+                    ON_SCOPE_EXIT(App::Push(std::move(options)));
+
+                    SidebarEntryArray::Items filter_items;
+                    filter_items.push_back("All"_i18n);
+                    filter_items.push_back("1 Player"_i18n);
+                    filter_items.push_back("2 Players"_i18n);
+                    filter_items.push_back("More than 2 Players"_i18n);
+                    filter_items.push_back("Unknown"_i18n);
+
+                    options->Add<SidebarEntryArray>("Filter"_i18n, filter_items, [this](s64& index_out){
+                        m_filter.Set(index_out);
+                        SetFilter();
+                    }, m_filter.Get());
+                });
+
                 options->Add<SidebarEntryCallback>("View application content"_i18n, [this](){
-                    App::Push<meta::Menu>(m_entries[m_index]);
+                    App::Push<meta::Menu>(GetEntry());
                 });
 
                 options->Add<SidebarEntryCallback>("Launch random game"_i18n, [this](){
-                    const auto random_index = randomGet64() % std::size(m_entries);
-                    auto& e = m_entries[random_index];
+                    const auto random_index = (s64)(randomGet64() % m_entries_current.size());
+                    auto& e = GetEntry(random_index);
                     LoadControlEntry(e, true);
 
                     App::Push<OptionBox>(
@@ -399,14 +417,14 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
 
                 // completely deletes the application record and all data.
                 options->Add<SidebarEntryCallback>("Delete"_i18n, [this](){
-                    const auto buf = i18n::Reorder("Are you sure you want to delete ", m_entries[m_index].GetName()) + "?";
+                    const auto buf = i18n::Reorder("Are you sure you want to delete ", GetEntry().GetName()) + "?";
                     App::Push<OptionBox>(
                         buf,
                         "Back"_i18n, "Delete"_i18n, 0, [this](auto op_index){
                             if (op_index && *op_index) {
                                 DeleteGames();
                             }
-                        }, m_entries[m_index].image
+                        }, GetEntry().image
                     );
                 }, true);
             }
@@ -421,7 +439,7 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
                 });
 
                 options->Add<SidebarEntryCallback>("Create contents folder"_i18n, [this](){
-                    const auto rc = fs::FsNativeSd().CreateDirectory(title::GetContentsPath(m_entries[m_index].app_id));
+                    const auto rc = fs::FsNativeSd().CreateDirectory(title::GetContentsPath(GetEntry().app_id));
                     App::PushErrorBox(rc, "Folder create failed!"_i18n);
 
                     if (R_SUCCEEDED(rc)) {
@@ -466,6 +484,7 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
     ns::Initialize();
     es::Initialize();
     title::Init();
+    titledb::DownloadIfNeeded();
 
     fsOpenGameCardDetectionEventNotifier(std::addressof(m_gc_event_notifier));
     fsEventNotifierGetEventHandle(std::addressof(m_gc_event_notifier), std::addressof(m_gc_event), true);
@@ -491,13 +510,22 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
         m_dirty = true;
     }
 
+    if (titledb::IsReady() && !m_titledb_was_ready) {
+        m_titledb_was_ready = true;
+        log_write_boot("[game_menu] titledb became ready, rebuilding filter indices (%zu entries)\n", m_entries.size());
+        if (!m_entries.empty()) {
+            BuildFilterIndices();
+            SetFilter();
+        }
+    }
+
     if (m_dirty) {
         App::Notify("Updating application record list"_i18n);
         SortAndFindLastFile(true);
     }
 
     MenuBase::Update(controller, touch);
-    m_list->OnUpdate(controller, touch, m_index, m_entries.size(), [this](bool touch, auto i) {
+    m_list->OnUpdate(controller, touch, m_index, m_entries_current.size(), [this](bool touch, auto i) {
         if (touch && m_index == i) {
             FireAction(Button::A);
         } else {
@@ -510,7 +538,7 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
 void Menu::Draw(NVGcontext* vg, Theme* theme) {
     MenuBase::Draw(vg, theme);
 
-    if (m_entries.empty()) {
+    if (m_entries_current.empty()) {
         gfx::drawTextArgs(vg, GetX() + GetW() / 2.f, GetY() + GetH() / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, theme->GetColour(ThemeEntryID_TEXT_INFO), "Empty..."_i18n.c_str());
         return;
     }
@@ -519,9 +547,9 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
     const int image_load_max = 2;
     int image_load_count = 0;
 
-    m_list->Draw(vg, theme, m_entries.size(), [this, &image_load_count](auto* vg, auto* theme, auto v, auto pos) {
+    m_list->Draw(vg, theme, m_entries_current.size(), [this, &image_load_count](auto* vg, auto* theme, auto v, auto pos) {
         const auto& [x, y, w, h] = v;
-        auto& e = m_entries[pos];
+        auto& e = m_entries[m_entries_current[pos]];
 
         if (e.status == title::NacpLoadStatus::None) {
             title::PushAsync(e.app_id);
@@ -563,10 +591,14 @@ void Menu::SetIndex(s64 index) {
         m_list->SetYoff(0);
     }
 
+    if (m_entries_current.empty()) {
+        return;
+    }
+
     char title_id[33];
-    std::snprintf(title_id, sizeof(title_id), "%016lX", m_entries[m_index].app_id);
+    std::snprintf(title_id, sizeof(title_id), "%016lX", GetEntry().app_id);
     SetTitleSubHeading(title_id);
-    this->SetSubHeading(std::to_string(m_index + 1) + " / " + std::to_string(m_entries.size()));
+    this->SetSubHeading(std::to_string(m_index + 1) + " / " + std::to_string(m_entries_current.size()));
 }
 
 void Menu::ScanHomebrew() {
@@ -609,8 +641,8 @@ void Menu::ScanHomebrew() {
 
     m_dirty = false;
     log_write("games found: %zu time_taken: %.2f seconds %zu ms %zu ns\n", m_entries.size(), ts.GetSecondsD(), ts.GetMs(), ts.GetNs());
-    this->Sort();
-    SetIndex(0);
+    BuildFilterIndices();
+    SetFilter();
     ClearSelection();
 }
 
@@ -620,12 +652,15 @@ void Menu::Sort() {
 
     // for alphabetical / publisher sort, ensure names are loaded.
     if (sort == SortType_Alphabetical || sort == SortType_Publisher) {
-        for (auto& e : m_entries) {
-            LoadControlEntry(e);
+        for (auto i : m_entries_current) {
+            LoadControlEntry(m_entries[i]);
         }
     }
 
-    const auto sorter = [sort, order](const Entry& lhs, const Entry& rhs) -> bool {
+    const auto sorter = [this, sort, order](EntryMini _lhs, EntryMini _rhs) -> bool {
+        const auto& lhs = m_entries[_lhs];
+        const auto& rhs = m_entries[_rhs];
+
         switch (sort) {
             case SortType_Updated: {
                 // entries come from the system ordered by last_event descending.
@@ -666,11 +701,14 @@ void Menu::Sort() {
         std::unreachable();
     };
 
-    std::ranges::sort(m_entries, sorter);
+    std::ranges::sort(m_entries_current, sorter);
 }
 
 void Menu::SortAndFindLastFile(bool scan) {
-    const auto app_id = m_entries[m_index].app_id;
+    if (m_entries_current.empty() && !scan) {
+        return;
+    }
+    const u64 app_id = m_entries_current.empty() ? 0 : GetEntry().app_id;
     if (scan) {
         ScanHomebrew();
     } else {
@@ -678,9 +716,13 @@ void Menu::SortAndFindLastFile(bool scan) {
     }
     SetIndex(0);
 
+    if (app_id == 0) {
+        return;
+    }
+
     s64 index = -1;
-    for (u64 i = 0; i < m_entries.size(); i++) {
-        if (app_id == m_entries[i].app_id) {
+    for (u64 i = 0; i < m_entries_current.size(); i++) {
+        if (app_id == GetEntry(i).app_id) {
             index = i;
             break;
         }
@@ -702,11 +744,58 @@ void Menu::SortAndFindLastFile(bool scan) {
 void Menu::FreeEntries() {
     auto vg = App::GetVg();
 
-    for (auto&p : m_entries) {
+    for (auto& p : m_entries) {
         FreeEntry(vg, p);
     }
 
     m_entries.clear();
+
+    for (auto& index : m_entries_index) {
+        index.clear();
+    }
+    m_entries_current = {};
+}
+
+void Menu::BuildFilterIndices() {
+    for (auto& index : m_entries_index) {
+        index.clear();
+    }
+
+    for (u32 i = 0; i < m_entries.size(); i++) {
+        m_entries_index[FilterType_All].emplace_back(i);
+
+        // log first 3 app_ids so we can compare against titledb keys
+        if (i < 3) {
+            log_write_boot("[game_menu] sample app_id[%u]: %016llX\n",
+                i, (unsigned long long)m_entries[i].app_id);
+        }
+
+        const auto players = titledb::GetNumberOfPlayers(m_entries[i].app_id);
+        if (players == 1) {
+            m_entries_index[FilterType_SinglePlayer].emplace_back(i);
+        } else if (players == 2) {
+            m_entries_index[FilterType_TwoPlayers].emplace_back(i);
+        } else if (players > 2) {
+            m_entries_index[FilterType_MoreThanTwoPlayers].emplace_back(i);
+        } else {
+            m_entries_index[FilterType_Unknown].emplace_back(i);
+        }
+    }
+
+    log_write_boot("[game_menu] BuildFilterIndices: total=%zu, 1p=%zu, 2p=%zu, 2p+=%zu, unknown=%zu, titledb_ready=%d\n",
+        m_entries_index[FilterType_All].size(),
+        m_entries_index[FilterType_SinglePlayer].size(),
+        m_entries_index[FilterType_TwoPlayers].size(),
+        m_entries_index[FilterType_MoreThanTwoPlayers].size(),
+        m_entries_index[FilterType_Unknown].size(),
+        (int)titledb::IsReady());
+}
+
+void Menu::SetFilter() {
+    ClearSelection();
+    m_entries_current = m_entries_index[m_filter.Get()];
+    SetIndex(0);
+    Sort();
 }
 
 void Menu::OnLayoutChange() {

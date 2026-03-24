@@ -38,6 +38,17 @@ enum SortType {
     SortType_Publisher,
 };
 
+enum FilterType {
+    FilterType_All,
+    FilterType_SinglePlayer,
+    FilterType_TwoPlayers,
+    FilterType_MoreThanTwoPlayers,
+    FilterType_Unknown,
+    FilterType_MAX,
+};
+
+using EntryMini = u32;
+
 enum OrderType {
     OrderType_Descending,
     OrderType_Ascending,
@@ -56,6 +67,14 @@ struct Menu final : grid::Menu {
     void Draw(NVGcontext* vg, Theme* theme) override;
     void OnFocusGained() override;
 
+    auto GetEntry(s64 i) -> Entry& {
+        return m_entries[m_entries_current[i]];
+    }
+
+    auto GetEntry() -> Entry& {
+        return GetEntry(m_index);
+    }
+
 private:
     void SetIndex(s64 index);
     void ScanHomebrew();
@@ -63,6 +82,8 @@ private:
     void SortAndFindLastFile(bool scan);
     void FreeEntries();
     void OnLayoutChange();
+    void SetFilter();
+    void BuildFilterIndices();
 
     auto GetSelectedEntries() const {
         std::vector<Entry> out;
@@ -72,8 +93,8 @@ private:
             }
         }
 
-        if (!m_entries.empty() && out.empty()) {
-            out.emplace_back(m_entries[m_index]);
+        if (!m_entries_current.empty() && out.empty()) {
+            out.emplace_back(m_entries[m_entries_current[m_index]]);
         }
 
         return out;
@@ -97,10 +118,13 @@ private:
     static constexpr inline const char* INI_SECTION_DUMP = "dump";
 
     std::vector<Entry> m_entries{};
+    std::vector<EntryMini> m_entries_index[FilterType_MAX]{};
+    std::span<EntryMini> m_entries_current{};
     s64 m_index{}; // where i am in the array
     s64 m_selected_count{};
     std::unique_ptr<List> m_list{};
     bool m_dirty{};
+    bool m_titledb_was_ready{};
 
     // use for detection game card removal to force a refresh.
     Event m_gc_event{};
@@ -109,6 +133,7 @@ private:
     option::OptionLong m_sort{INI_SECTION, "sort", SortType::SortType_Updated};
     option::OptionLong m_order{INI_SECTION, "order", OrderType::OrderType_Descending};
     option::OptionLong m_layout{INI_SECTION, "layout", LayoutType::LayoutType_Grid};
+    option::OptionLong m_filter{INI_SECTION, "filter", FilterType::FilterType_All};
     option::OptionBool m_hide_forwarders{INI_SECTION, "hide_forwarders", false};
 };
 

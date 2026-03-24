@@ -105,6 +105,23 @@ void log_write_arg(const char* s, va_list* v) {
     log_write_arg_internal(s, v);
 }
 
+void log_write_boot(const char* s, ...) {
+    std::va_list v{};
+    va_start(v, s);
+
+    char buf[512];
+    std::vsnprintf(buf, sizeof(buf), s, v);
+    va_end(v);
+
+    // reuse the same mutex so log_write and log_write_boot never interleave
+    SCOPED_MUTEX(&g_mutex);
+    auto file = std::fopen("/switch/sphaira/sphaira_boot.log", "a");
+    if (file) {
+        std::fprintf(file, "%s", buf);
+        std::fclose(file);
+    }
+}
+
 } // extern "C"
 
 #endif

@@ -220,6 +220,9 @@ FetchContent_Declare(libpulsar
 FetchContent_Declare(nanovg
     GIT_REPOSITORY https://github.com/ITotalJustice/nanovg-deko3d.git
     GIT_TAG 845c9fc
+    PATCH_COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=<SOURCE_DIR>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch_nanovg_romfs.cmake
 )
 
 FetchContent_Declare(stb
@@ -568,6 +571,11 @@ FetchContent_MakeAvailable(
     libnxtc
     dr_libs
 )
+
+# Apply the stb_truetype CFF buffer-size fix to the stb copy that nanovg
+# fetches internally (stb_nanovg). Must run after FetchContent_MakeAvailable
+# so that stb_nanovg_SOURCE_DIR is populated.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch_stbtt.cmake)
 
 add_library(stb INTERFACE)
 target_include_directories(stb INTERFACE ${stb_SOURCE_DIR})

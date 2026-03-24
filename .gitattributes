@@ -1,0 +1,20 @@
+# Enforce LF line endings for all text files (prevents Windows CRLF corruption in romfs)
+* text=auto eol=lf
+
+# Explicitly keep binary files untouched
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.bmp binary
+*.ico binary
+*.nro binary
+*.nso binary
+*.nacp binary
+*.zip binary
+*.7z binary
+*.ttf binary
+*.otf binary
+*.wav binary
+*.mp3 binary
+*.ogg binary
+*.flac binary

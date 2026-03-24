@@ -307,6 +307,7 @@ if (ENABLE_LIBUSBDVD)
     FetchContent_Declare(libusbdvd
         GIT_REPOSITORY https://github.com/proconsule/libusbdvd.git
         GIT_TAG 3cb0613
+        PATCH_COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/patches/patch_libusbdvd.py"
     )
 
     FetchContent_MakeAvailable(libusbdvd)

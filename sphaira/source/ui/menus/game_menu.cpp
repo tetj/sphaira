@@ -294,6 +294,7 @@ void SignalChange() {
 }
 
 Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
+    log_write_boot("[game_menu] ctor: start\n");
     this->SetActions(
         std::make_pair(Button::L3, Action{[this](){
             if (m_entries_current.empty()) {
@@ -520,15 +521,53 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
         }})
     );
 
+    log_write_boot("[game_menu] ctor: OnLayoutChange\n");
     OnLayoutChange();
 
-    ns::Initialize();
-    es::Initialize();
-    title::Init();
-    titledb::DownloadIfNeeded();
+    // Retry service initializations: on a second consecutive launch, the kernel
+    // may not have fully reclaimed thread/handle resources from the previous run,
+    // causing transient svcCreateThread / smGetService failures. A short sleep
+    // between attempts is enough for the kernel to finish its cleanup.
+    for (int attempt = 1; attempt <= 10; attempt++) {
+        const auto ns_rc = ns::Initialize();
+        if (R_SUCCEEDED(ns_rc)) {
+            if (attempt > 1) {
+                log_write_boot("[game_menu] ctor: ns::Initialize ok (attempt %d)\n", attempt);
+            }
+            break;
+        }
+        log_write_boot("[game_menu] ctor: ns::Initialize failed rc=0x%X (attempt %d), retrying\n", ns_rc, attempt);
+        svcSleepThread(20'000'000);
+    }
 
+    for (int attempt = 1; attempt <= 10; attempt++) {
+        const auto es_rc = es::Initialize();
+        if (R_SUCCEEDED(es_rc)) {
+            if (attempt > 1) {
+                log_write_boot("[game_menu] ctor: es::Initialize ok (attempt %d)\n", attempt);
+            }
+            break;
+        }
+        log_write_boot("[game_menu] ctor: es::Initialize failed rc=0x%X (attempt %d), retrying\n", es_rc, attempt);
+        svcSleepThread(20'000'000);
+    }
+
+    for (int attempt = 1; attempt <= 10; attempt++) {
+        const auto title_rc = title::Init();
+        if (R_SUCCEEDED(title_rc)) {
+            if (attempt > 1) {
+                log_write_boot("[game_menu] ctor: title::Init ok (attempt %d)\n", attempt);
+            }
+            break;
+        }
+        log_write_boot("[game_menu] ctor: title::Init failed rc=0x%X (attempt %d), retrying\n", title_rc, attempt);
+        svcSleepThread(20'000'000);
+    }
+
+    titledb::DownloadIfNeeded();
     fsOpenGameCardDetectionEventNotifier(std::addressof(m_gc_event_notifier));
     fsEventNotifierGetEventHandle(std::addressof(m_gc_event_notifier), std::addressof(m_gc_event), true);
+    log_write_boot("[game_menu] ctor: done\n");
 }
 
 Menu::~Menu() {
@@ -620,8 +659,9 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
 }
 
 void Menu::OnFocusGained() {
+    log_write_boot("[game_menu] OnFocusGained: start\n");
     MenuBase::OnFocusGained();
-
+    log_write_boot("[game_menu] OnFocusGained: setting START action\n");
     // MainMenu::OnLRPress / constructor push their own Button::START → App::Exit onto
     // every tab menu after construction and on every tab switch. Override it here,
     // since OnFocusGained is called after that propagation.
@@ -648,9 +688,11 @@ void Menu::OnFocusGained() {
         }
     }});
 
+    log_write_boot("[game_menu] OnFocusGained: entries empty=%d, calling ScanHomebrew\n", (int)m_entries.empty());
     if (m_entries.empty()) {
         ScanHomebrew();
     }
+    log_write_boot("[game_menu] OnFocusGained: done\n");
 }
 
 void Menu::SetIndex(s64 index) {
@@ -674,6 +716,7 @@ void Menu::SetIndex(s64 index) {
 }
 
 void Menu::ScanHomebrew() {
+    log_write_boot("[game_menu] ScanHomebrew: start\n");
     constexpr auto ENTRY_CHUNK_COUNT = 1000;
     const auto hide_forwarders = m_hide_forwarders.Get();
     TimeStamp ts;
@@ -681,6 +724,7 @@ void Menu::ScanHomebrew() {
     App::SetBoostMode(true);
     ON_SCOPE_EXIT(App::SetBoostMode(false));
 
+    log_write_boot("[game_menu] ScanHomebrew: boost mode set, scanning ns records\n");
     FreeEntries();
     m_entries.reserve(ENTRY_CHUNK_COUNT);
     g_change_signalled = false;
@@ -713,6 +757,7 @@ void Menu::ScanHomebrew() {
 
     m_dirty = false;
     log_write("games found: %zu time_taken: %.2f seconds %zu ms %zu ns\n", m_entries.size(), ts.GetSecondsD(), ts.GetMs(), ts.GetNs());
+    log_write_boot("[game_menu] ScanHomebrew: found %zu games, building indices\n", m_entries.size());
     BuildFilterIndices();
     SetFilter();
     ClearSelection();

@@ -237,6 +237,7 @@ auto GetMenuMenuEntries() -> std::span<const MiscMenuEntry> {
 }
 
 MainMenu::MainMenu() {
+    log_write_boot("[MainMenu] ctor: start\n");
     curl::Api().ToFileAsync(
         curl::Url{GITHUB_URL},
         curl::Path{CACHE_PATH},
@@ -415,15 +416,19 @@ MainMenu::MainMenu() {
         }}
     ));
 
+    log_write_boot("[MainMenu] ctor: creating center menu\n");
     std::string center_name;
     m_centre_menu = CreateCenterMenu(center_name);
     m_current_menu = m_centre_menu.get();
 
+    log_write_boot("[MainMenu] ctor: creating left menu (center=%s)\n", center_name.c_str());
     std::string left_side_name;
     m_left_menu = CreateLeftSideMenu(center_name, left_side_name);
 
+    log_write_boot("[MainMenu] ctor: creating right menu (left=%s)\n", left_side_name.c_str());
     m_right_menu = CreateRightSideMenu(left_side_name);
 
+    log_write_boot("[MainMenu] ctor: done\n");
     AddOnLRPress();
 
     for (auto [button, action] : m_actions) {
@@ -463,11 +468,12 @@ void MainMenu::OnLRPress(MenuBase* menu, Button b) {
     }
 
     AddOnLRPress();
-    m_current_menu->OnFocusGained();
 
     for (auto [button, action] : m_actions) {
         m_current_menu->SetAction(button, action);
     }
+
+    m_current_menu->OnFocusGained();
 }
 
 void MainMenu::AddOnLRPress() {

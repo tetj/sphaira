@@ -106,6 +106,10 @@ void log_write_arg(const char* s, va_list* v) {
 }
 
 void log_write_boot(const char* s, ...) {
+    if (!log_is_init()) {
+        return;
+    }
+
     std::va_list v{};
     va_start(v, s);
 

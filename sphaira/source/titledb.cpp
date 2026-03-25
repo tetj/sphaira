@@ -54,7 +54,7 @@ auto IsStale() -> bool {
 }
 
 void DoParse() {
-    log_write_boot("[titledb] DoParse() started\n");
+    log_write_boot("[titledb] DoParse: thread started\n");
 
     struct stat st;
     if (::stat(TITLEDB_PATH, &st) == 0) {
@@ -220,7 +220,17 @@ void DownloadIfNeeded() {
 
     if (!IsStale()) {
         log_write_boot("[titledb] cache is fresh, launching background parse\n");
-        g_parse_async = std::make_unique<utils::Async>(DoParse);
+        for (int attempt = 1; attempt <= 10; attempt++) {
+            g_parse_async = std::make_unique<utils::Async>(DoParse);
+            if (g_parse_async->IsRunning()) {
+                log_write_boot("[titledb] background parse thread created ok (attempt %d)\n", attempt);
+                return;
+            }
+            log_write_boot("[titledb] background parse thread failed (attempt %d), retrying...\n", attempt);
+            g_parse_async.reset();
+            svcSleepThread(100'000'000); // 100ms
+        }
+        log_write_boot("[titledb] background parse thread failed after all retries\n");
         return;
     }
 

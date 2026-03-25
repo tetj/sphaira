@@ -32,6 +32,7 @@ extern void boot_log(const char* msg);
 #include "utils/profile.hpp"
 #include "utils/thread.hpp"
 #include "utils/devoptab.hpp"
+#include "titledb.hpp"
 
 #include <nanovg_dk.h>
 #include <minIni.h>
@@ -2734,6 +2735,7 @@ App::~App() {
     // boost mode is disabled in userAppExit().
     App::SetBoostMode(true);
 
+    boot_log("App dtor start");
     log_write("starting to exit\n");
     {
         SCOPED_TIMESTAMP("TOTAL EXIT");
@@ -2742,12 +2744,14 @@ App::~App() {
         // async exit as these threads sleep every 100ms.
         {
             SCOPED_TIMESTAMP("async signal");
+            boot_log("App dtor: ExitSignal phase");
 #ifdef ENABLE_FTPSRV
             ftpsrv::ExitSignal();
 #endif // ENABLE_FTPSRV
             nxlinkSignalExit();
             audio::ExitSignal();
             curl::ExitSignal();
+            boot_log("App dtor: ExitSignal done");
         }
 
         // this has to be called before any cleanup to ensure the lifetime of
@@ -2755,20 +2759,25 @@ App::~App() {
         // clear in reverse order as the widgets are a stack.
         {
             SCOPED_TIMESTAMP("widget exit");
+            boot_log("App dtor: widget teardown");
             while (!m_widgets.empty()) {
                 m_widgets.pop_back();
             }
+            boot_log("App dtor: widget teardown done");
         }
 
         utils::Async async_exit([this](){
+            log_write_boot("async_exit: start");
             {
                 SCOPED_TIMESTAMP("i18n_exit");
+                log_write_boot("async_exit: i18n::exit");
                 i18n::exit();
             }
 
 #ifdef ENABLE_LIBUSBDVD
             {
                 SCOPED_TIMESTAMP("usbdvd_exit");
+                log_write_boot("async_exit: usbdvd::UnmountAll");
                 usbdvd::UnmountAll();
             }
 #endif // ENABLE_LIBUSBDVD
@@ -2776,6 +2785,7 @@ App::~App() {
 #ifdef ENABLE_LIBHAZE
             {
                 SCOPED_TIMESTAMP("mtp exit");
+                log_write_boot("async_exit: libhaze::Exit");
                 libhaze::Exit();
             }
 #endif // ENABLE_LIBHAZE
@@ -2783,6 +2793,7 @@ App::~App() {
 #ifdef ENABLE_LIBUSBHSFS
             {
                 SCOPED_TIMESTAMP("hdd exit");
+                log_write_boot("async_exit: usbHsFsExit");
                 usbHsFsExit();
             }
 #endif // ENABLE_LIBUSBHSFS
@@ -2790,12 +2801,21 @@ App::~App() {
             // this has to come before curl exit as it uses curl global.
             {
                 SCOPED_TIMESTAMP("devoptab exit");
+                log_write_boot("async_exit: devoptab::UmountAllNeworkDevices");
                 devoptab::UmountAllNeworkDevices();
+            }
+
+            // join the titledb background parse thread before curl and audio exit.
+            {
+                SCOPED_TIMESTAMP("titledb_exit");
+                log_write_boot("async_exit: titledb::Exit");
+                titledb::Exit();
             }
 
             // do these last as they were signalled to exit.
             {
                 SCOPED_TIMESTAMP("audio_exit");
+                log_write_boot("async_exit: audio::CloseSong + audio::Exit");
                 audio::CloseSong(&m_background_music);
                 audio::Exit();
             }
@@ -2803,35 +2823,42 @@ App::~App() {
 #ifdef ENABLE_FTPSRV
             {
                 SCOPED_TIMESTAMP("ftp exit");
+                log_write_boot("async_exit: ftpsrv::Exit");
                 ftpsrv::Exit();
             }
 #endif // ENABLE_FTPSRV
 
             {
                 SCOPED_TIMESTAMP("nxlink exit");
+                log_write_boot("async_exit: nxlinkExit");
                 nxlinkExit();
             }
 
             {
                 SCOPED_TIMESTAMP("curl_exit");
+                log_write_boot("async_exit: curl::Exit");
                 curl::Exit();
             }
+            log_write_boot("async_exit: done");
         });
 
         // do not async close theme as it frees textures.
         {
             SCOPED_TIMESTAMP("theme exit");
+            boot_log("App dtor: CloseTheme");
             ini_puts("config", "theme", m_theme.meta.ini_path, CONFIG_PATH);
             CloseTheme();
         }
 
         {
             SCOPED_TIMESTAMP("destroy frame buffer resources");
+            boot_log("App dtor: destroyFramebufferResources");
             this->destroyFramebufferResources();
         }
 
         {
             SCOPED_TIMESTAMP("nvg exit");
+            boot_log("App dtor: nvgDeleteDk");
             nvgDeleteImage(vg, m_default_image);
             nvgDeleteDk(this->vg);
             this->renderer.reset();

@@ -18,4 +18,8 @@ auto GetRating(u64 app_id) -> u32;
 // than 1 month. Safe to call multiple times — only starts once per session.
 void DownloadIfNeeded();
 
+// Waits for any in-progress background thread to finish and cleans up.
+// Must be called before the NRO is unmapped (i.e. during App teardown).
+void Exit();
+
 } // namespace sphaira::titledb

@@ -501,10 +501,16 @@ bool nxlinkInitialize(NxlinkCallback callback) {
 
 void nxlinkExit() {
     SCOPED_MUTEX(&g_mutex);
+    if (!g_is_running) {
+        log_write("[NXLINK] nxlinkExit: not running, skipping\n");
+        return;
+    }
     g_is_running = false;
     g_quit = true;
+    log_write("[NXLINK] nxlinkExit: waiting for thread\n");
     threadWaitForExit(&g_thread);
     threadClose(&g_thread);
+    log_write("[NXLINK] nxlinkExit: done\n");
 }
 
 void nxlinkSignalExit() {

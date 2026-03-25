@@ -255,5 +255,10 @@ void DownloadIfNeeded() {
     );
 }
 
-} // namespace sphaira::titledb
+void Exit() {
+    log_write_boot("[titledb] Exit: joining background thread (if any)\n");
+    g_parse_async.reset();
+    log_write_boot("[titledb] Exit: done\n");
+}
 
+} // namespace sphaira::titledb

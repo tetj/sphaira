@@ -23,6 +23,32 @@
 - Never call `threadWaitForExit()` without a prior guard that checks whether the thread
   was successfully started (e.g. check `m_running` or a similar flag), to avoid waiting
   on an invalid handle.
+- Never read or write shared state from a background `utils::Async` thread without
+  protection. Use `std::atomic` for simple flags/counters, or a mutex for structs.
+  Cross-thread signals must be `std::atomic<bool>`, not plain `bool`.
+- The `async_exit` lambda in `App::~App()` captures `this`. Do not access any `App`
+  member that may have already been destroyed by the time the lambda runs. Services
+  and subsystems should be exited via their own module-level `Exit()` functions, not
+  by touching `m_*` members inside `async_exit`. The one exception is POD handles
+  (e.g. `audio::SongID`) that must be closed before the subsystem exits — these must
+  be closed on the **main thread before `async_exit` is constructed**, not inside the
+  lambda. See the `audio::CloseSong(&m_background_music)` call before `async_exit` in
+  `App::~App()` as the canonical example.
+- Any retry loop (e.g. service Initialize, thread creation) must have a fixed maximum
+  attempt count and a `svcSleepThread` delay between attempts. Never retry indefinitely.
+  Log each failed attempt with its attempt number and result code.
+- Global `utils::Async` objects must be `std::unique_ptr<utils::Async>`, never
+  value-type globals. Static constructors run before `userAppInit()` and static
+  destructors run after `userAppExit()` — spawning threads at either point is unsafe.
+- To signal a background thread to wake up and exit, use libnx `UEvent`
+  (`ueventCreate` / `ueventSignal` / `waitSingleHandle`), following the pattern in
+  `ThreadEntry::SignalClose()` and `ThreadQueue::SignalClose()` in `download.cpp`.
+  Never use a `condvar` + plain `bool` for cross-thread wakeup — the bool is not
+  atomic and the condvar requires a mutex that the sleeping thread may not hold.
+- `ON_SCOPE_EXIT` guards are tied to the C++ scope they are declared in, not to any
+  thread. Never rely on an `ON_SCOPE_EXIT` declared outside a thread lambda to clean
+  up resources owned or used by that thread — the guard fires when the outer scope
+  exits, which may be before or after the thread finishes.
 
 ## Horizon OS / NRO-Specific Rules
 

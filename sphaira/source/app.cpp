@@ -2766,6 +2766,13 @@ App::~App() {
             boot_log("App dtor: widget teardown done");
         }
 
+        // Close the background music song on the main thread before launching
+        // async_exit, so the async lambda never needs to touch m_* members.
+        {
+            boot_log("App dtor: audio::CloseSong");
+            audio::CloseSong(&m_background_music);
+        }
+
         utils::Async async_exit([this](){
             log_write_boot("async_exit: start");
             {
@@ -2815,8 +2822,7 @@ App::~App() {
             // do these last as they were signalled to exit.
             {
                 SCOPED_TIMESTAMP("audio_exit");
-                log_write_boot("async_exit: audio::CloseSong + audio::Exit");
-                audio::CloseSong(&m_background_music);
+                log_write_boot("async_exit: audio::Exit");
                 audio::Exit();
             }
 

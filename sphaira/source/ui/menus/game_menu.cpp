@@ -31,6 +31,8 @@
 
 #include <utility>
 #include <cstring>
+#include <cctype>
+#include <string_view>
 #include <algorithm>
 #include <minIni.h>
 
@@ -38,6 +40,14 @@ namespace sphaira::ui::menu::game {
 namespace {
 
 std::atomic_bool g_change_signalled{};
+
+// case-insensitive string search, same helper as appstore
+auto FindCaseInsensitive(std::string_view base, std::string_view term) -> bool {
+    const auto it = std::search(base.cbegin(), base.cend(), term.cbegin(), term.cend(), [](char a, char b){
+        return std::toupper(a) == std::toupper(b);
+    });
+    return it != base.cend();
+}
 
 struct NspSource final : dump::BaseSource {
     NspSource(const std::vector<NspEntry>& entries) : m_entries{entries} {
@@ -313,7 +323,15 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
             }
         }}),
         std::make_pair(Button::B, Action{"Back"_i18n, [this](){
-            SetPop();
+            if (m_is_search) {
+                m_is_search = false;
+                SetFilter();
+                if (m_entry_search_jump_back < (s64)m_entries_current.size()) {
+                    SetIndex(m_entry_search_jump_back);
+                }
+            } else {
+                SetPop();
+            }
         }}),
         std::make_pair(Button::A, Action{"Launch"_i18n, [this](){
             if (m_entries_current.empty()) {
@@ -603,6 +621,33 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
 
 void Menu::OnFocusGained() {
     MenuBase::OnFocusGained();
+
+    // MainMenu::OnLRPress / constructor push their own Button::START → App::Exit onto
+    // every tab menu after construction and on every tab switch. Override it here,
+    // since OnFocusGained is called after that propagation.
+    SetAction(Button::START, Action{"Search"_i18n, [this](){
+        log_write_boot("[game_menu] START pressed: is_search=%d term=\"%s\"\n",
+            (int)m_is_search, m_search_term.c_str());
+        std::string out;
+        const auto* initial = m_is_search ? m_search_term.c_str() : nullptr;
+        if (R_SUCCEEDED(swkbd::ShowText(out, "Search Games"_i18n.c_str(), nullptr, initial))) {
+            log_write_boot("[game_menu] swkbd result: \"%s\"\n", out.c_str());
+            if (out.empty()) {
+                if (m_is_search) {
+                    m_is_search = false;
+                    SetFilter();
+                    if (m_entry_search_jump_back < (s64)m_entries_current.size()) {
+                        SetIndex(m_entry_search_jump_back);
+                    }
+                }
+            } else {
+                SetSearch(out);
+            }
+        } else {
+            log_write_boot("[game_menu] swkbd cancelled\n");
+        }
+    }});
+
     if (m_entries.empty()) {
         ScanHomebrew();
     }
@@ -618,9 +663,13 @@ void Menu::SetIndex(s64 index) {
         return;
     }
 
-    char title_id[33];
-    std::snprintf(title_id, sizeof(title_id), "%016lX", GetEntry().app_id);
-    SetTitleSubHeading(title_id);
+    if (m_is_search) {
+        SetTitleSubHeading("\"" + m_search_term + "\"");
+    } else {
+        char title_id[33];
+        std::snprintf(title_id, sizeof(title_id), "%016lX", GetEntry().app_id);
+        SetTitleSubHeading(title_id);
+    }
     this->SetSubHeading(std::to_string(m_index + 1) + " / " + std::to_string(m_entries_current.size()));
 }
 
@@ -830,8 +879,34 @@ void Menu::BuildFilterIndices() {
 }
 
 void Menu::SetFilter() {
+    m_is_search = false;
     ClearSelection();
     m_entries_current = m_entries_index[m_filter.Get()];
+    SetIndex(0);
+    Sort();
+}
+
+void Menu::SetSearch(const std::string& term) {
+    if (!m_is_search) {
+        m_entry_search_jump_back = m_index;
+    }
+
+    m_search_term = term;
+    m_entries_index_search.clear();
+
+    for (u32 i = 0; i < m_entries.size(); i++) {
+        auto& e = m_entries[i];
+        LoadControlEntry(e);
+        if (FindCaseInsensitive(e.GetName(), term) || FindCaseInsensitive(e.GetAuthor(), term)) {
+            m_entries_index_search.emplace_back(i);
+        }
+    }
+
+    log_write_boot("[game_menu] SetSearch: term=\"%s\" results=%zu\n",
+        term.c_str(), m_entries_index_search.size());
+
+    m_is_search = true;
+    m_entries_current = m_entries_index_search;
     SetIndex(0);
     Sort();
 }

@@ -91,6 +91,7 @@ private:
     void OnLayoutChange();
     void SetFilter();
     void BuildFilterIndices();
+    void SetSearch(const std::string& term);
 
     auto GetSelectedEntries() const {
         std::vector<Entry> out;
@@ -126,12 +127,16 @@ private:
 
     std::vector<Entry> m_entries{};
     std::vector<EntryMini> m_entries_index[FilterType_MAX]{};
+    std::vector<EntryMini> m_entries_index_search{};
     std::span<EntryMini> m_entries_current{};
     s64 m_index{}; // where i am in the array
     s64 m_selected_count{};
+    s64 m_entry_search_jump_back{};
     std::unique_ptr<List> m_list{};
+    std::string m_search_term{};
     bool m_dirty{};
     bool m_titledb_was_ready{};
+    bool m_is_search{};
 
     // use for detection game card removal to force a refresh.
     Event m_gc_event{};

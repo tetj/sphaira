@@ -259,9 +259,12 @@ void Menu::Scan() {
     m_entries.clear();
 
     // load from romfs first
-    if (R_SUCCEEDED(romfsInit())) {
+    {
+    const Result _rc = romfsInit();
+    if (R_SUCCEEDED(_rc) || _rc == 0x559u) {
         LoadEntriesFromPath("romfs:/github/");
-        romfsExit();
+        if (R_SUCCEEDED(_rc)) { romfsExit(); }
+    }
     }
 
     // then load custom entries

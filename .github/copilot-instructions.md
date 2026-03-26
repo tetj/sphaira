@@ -23,6 +23,10 @@
 - Never call `threadWaitForExit()` without a prior guard that checks whether the thread
   was successfully started (e.g. check `m_running` or a similar flag), to avoid waiting
   on an invalid handle.
+- Never call `threadClose()` on a thread that was never created or already closed.
+  On Horizon OS, a zero-initialised `Thread` struct has `handle = 0`, which is the
+  main thread's handle. Calling `threadClose(handle=0)` will close the **main thread**,
+  corrupting the kernel's reference count and causing crashes on the next NRO load.
 - Never read or write shared state from a background `utils::Async` thread without
   protection. Use `std::atomic` for simple flags/counters, or a mutex for structs.
   Cross-thread signals must be `std::atomic<bool>`, not plain `bool`.

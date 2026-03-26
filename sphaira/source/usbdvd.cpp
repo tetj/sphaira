@@ -13,6 +13,7 @@ namespace {
 Thread g_thread;
 Mutex g_mutex;
 std::unique_ptr<CUSBDVD> g_dvd;
+bool g_started{};
 
 void thread_func(void* arg) {
     SCOPED_MUTEX(&g_mutex);
@@ -32,14 +33,19 @@ Result MountAll() {
     // load usbdvd async.
     R_TRY(utils::CreateThread(&g_thread, thread_func, nullptr, 1024*64));
     R_TRY(threadStart(&g_thread));
+    g_started = true;
 
     R_SUCCEED();
 }
 
 void UnmountAll() {
     SCOPED_MUTEX(&g_mutex);
+    if (!g_started) {
+        return;
+    }
     threadWaitForExit(&g_thread);
     threadClose(&g_thread);
+    g_started = false;
     g_dvd.reset();
 }
 

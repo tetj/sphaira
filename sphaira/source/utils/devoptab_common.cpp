@@ -963,9 +963,8 @@ PushPullThreadData::~PushPullThreadData() {
         log_write("[PUSH:PULL] Waiting for thread to exit\n");
         threadWaitForExit(&thread);
         log_write("[PUSH:PULL] Thread exited\n");
+        threadClose(&thread);
     }
-
-    threadClose(&thread);
 }
 
 Result PushPullThreadData::CreateAndStart() {

@@ -269,6 +269,7 @@ struct ThreadEntry {
         ueventCreate(&m_uevent, true);
         R_TRY(utils::CreateThread(&m_thread, ThreadFunc, this, 1024*32));
         R_TRY(threadStart(&m_thread));
+        m_started = true;
         R_SUCCEED();
     }
 
@@ -278,8 +279,11 @@ struct ThreadEntry {
 
     void Close() {
         SignalClose();
-        threadWaitForExit(&m_thread);
-        threadClose(&m_thread);
+        if (m_started) {
+            threadWaitForExit(&m_thread);
+            threadClose(&m_thread);
+            m_started = false;
+        }
         if (m_curl) {
             curl_easy_cleanup(m_curl);
             m_curl = nullptr;
@@ -313,6 +317,7 @@ struct ThreadEntry {
     std::atomic_bool m_in_progress{};
     Mutex m_mutex{};
     UEvent m_uevent{};
+    bool m_started{};
 };
 
 struct ThreadQueueEntry {
@@ -325,11 +330,13 @@ struct ThreadQueue {
     Thread m_thread{};
     Mutex m_mutex{};
     UEvent m_uevent{};
+    bool m_started{};
 
     auto Create() -> Result {
         ueventCreate(&m_uevent, true);
         R_TRY(utils::CreateThread(&m_thread, ThreadFunc, this, 1024*32));
         R_TRY(threadStart(&m_thread));
+        m_started = true;
         R_SUCCEED();
     }
 
@@ -339,8 +346,11 @@ struct ThreadQueue {
 
     void Close() {
         SignalClose();
-        threadWaitForExit(&m_thread);
-        threadClose(&m_thread);
+        if (m_started) {
+            threadWaitForExit(&m_thread);
+            threadClose(&m_thread);
+            m_started = false;
+        }
     }
 
     auto Add(const Api& api, bool is_upload = false) -> bool {
